@@ -1,4 +1,4 @@
-import 'package:sound_ripper/src/dictionary.dart';
+import 'package:bf_sound_tool/src/dictionary.dart';
 import 'package:test/test.dart';
 
 void main() {

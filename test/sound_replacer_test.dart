@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 import 'package:test/test.dart';
 
 // Minimal synthetic VAG ADPCM: N silent 16-byte blocks.

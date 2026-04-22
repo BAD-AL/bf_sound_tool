@@ -1,12 +1,12 @@
-// Example: using the sound_ripper library API
+// Example: using the bf_sound_tool library API
 //
-// Run from the sound_ripper project root:
+// Run from the bf_sound_tool project root:
 //   dart API/example.dart
 //
 // Requires a hot.lvl file at test/test_files/xbox/hot.lvl
 
 import 'dart:io';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 
 void main() {
   // ── 1. Parse a sound file ─────────────────────────────────────────────────
@@ -98,7 +98,7 @@ void main() {
   // ── 8. Batch extract all active sounds ────────────────────────────────────
 
   print('\n=== Batch extract all active sounds ===');
-  final outDir = Directory('/tmp/sound_ripper_example');
+  final outDir = Directory('/tmp/bf_sound_tool_example');
   outDir.createSync(recursive: true);
 
   int extracted = 0;

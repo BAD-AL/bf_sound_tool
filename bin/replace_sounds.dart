@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 
 const _usage = '''
 Usage: replace_sounds -i <input.lvl> -r <folder> [options]

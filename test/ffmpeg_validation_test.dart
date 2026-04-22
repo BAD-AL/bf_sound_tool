@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 import 'package:test/test.dart';
 
 Future<int> _ffmpegCheck(String wavPath) async {
@@ -20,7 +20,7 @@ void main() {
   setUpAll(() async {
     final bytes = File('test/test_files/xbox/hot.lvl').readAsBytesSync();
     sf = BattlefrontSoundFile(bytes, 'xbox', 'bf2');
-    tmpDir = Directory.systemTemp.createTempSync('sound_ripper_ffmpeg_');
+    tmpDir = Directory.systemTemp.createTempSync('bf_sound_tool_ffmpeg_');
   });
 
   tearDownAll(() => tmpDir.deleteSync(recursive: true));

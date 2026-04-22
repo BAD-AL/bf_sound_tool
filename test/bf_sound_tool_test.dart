@@ -1,7 +1,7 @@
 // Integration smoke test — updated as the library grows.
 // Detailed unit tests live in fnv_hash_test.dart, byte_reader_test.dart, dictionary_test.dart.
 import 'dart:typed_data';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 import 'package:test/test.dart';
 
 void main() {

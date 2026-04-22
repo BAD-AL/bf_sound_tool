@@ -1,4 +1,4 @@
-import 'package:sound_ripper/src/fnv_hash.dart';
+import 'package:bf_sound_tool/src/fnv_hash.dart';
 import 'package:test/test.dart';
 
 void main() {

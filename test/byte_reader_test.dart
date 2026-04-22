@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:sound_ripper/src/byte_reader.dart';
+import 'package:bf_sound_tool/src/byte_reader.dart';
 import 'package:test/test.dart';
 
 void main() {

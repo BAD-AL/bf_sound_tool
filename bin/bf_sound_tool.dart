@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 
 const _usage = '''
-Usage: sound_ripper -i <file.lvl> [options]
+Usage: bf_sound_tool -i <file.lvl> [options]
 
 Options:
   -i <file>         Input .lvl (or .str / .bnk) file  [required]
@@ -261,7 +261,7 @@ Future<Uint8List> _wavToVag(
     return Uint8List(0);
   }
 
-  final tmp = Directory.systemTemp.createTempSync('sound_ripper_');
+  final tmp = Directory.systemTemp.createTempSync('bf_sound_tool_');
   final vagOut = '${tmp.path}/out.vag';
 
   try {

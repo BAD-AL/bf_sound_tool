@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:path/path.dart' as p;
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 import 'package:test/test.dart';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ void _registerLvlTests(String lvlPath, String platform, String version) {
     setUpAll(() async {
       final bytes = File(lvlPath).readAsBytesSync();
       sf = BattlefrontSoundFile(bytes, platform, version);
-      tmpDir = Directory.systemTemp.createTempSync('sound_ripper_scan_');
+      tmpDir = Directory.systemTemp.createTempSync('bf_sound_tool_scan_');
     });
 
     tearDownAll(() => tmpDir.deleteSync(recursive: true));

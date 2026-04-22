@@ -1,3 +1,4 @@
 .dart_tool/
 *.wav
-nab_converted.lvl nab.lvl nab_.lvl shell.lvl
+*.lvl
+

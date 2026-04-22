@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:sound_ripper/src/amb_deinterlacer.dart';
+import 'package:bf_sound_tool/src/amb_deinterlacer.dart';
 import 'package:test/test.dart';
 
 /// Build a synthetic 2-channel PCM16 buffer with [chunkCount] chunk pairs.

@@ -1,5 +1,5 @@
 import 'dart:typed_data';
-import 'package:sound_ripper/src/wav_writer.dart';
+import 'package:bf_sound_tool/src/wav_writer.dart';
 import 'package:test/test.dart';
 
 // Helpers to parse WAV header fields from a Uint8List.

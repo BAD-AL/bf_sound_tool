@@ -57,7 +57,7 @@ my_sounds/
   trooper_pain01.wav
 ```
 
-Entry names are case-sensitive. Use `sound_ripper --list` (or `--verify`) on the
+Entry names are case-sensitive. Use `bf_sound_tool --list` (or `--verify`) on the
 original file to see the exact names if you are unsure.
 
 ### Aliases
@@ -71,7 +71,7 @@ rep_blaster_fire   SKIP (alias — no audio data stored in this file)
 ```
 
 The BF2 format does not record which entry an alias points to, so the tool cannot
-suggest an alternative name. Use `sound_ripper --list` to identify the real entry
+suggest an alternative name. Use `bf_sound_tool --list` to identify the real entry
 that holds the audio data you want to replace.
 
 ---
@@ -312,11 +312,11 @@ dart run bin/replace_sounds.dart \
 ## Troubleshooting
 
 **"not found in lvl"** — The filename (without `.wav`) does not match any entry name.
-Use `sound_ripper --list` on the original file to confirm the exact name. Names are
+Use `bf_sound_tool --list` on the original file to confirm the exact name. Names are
 case-sensitive.
 
 **"alias — no audio data stored in this file"** — You named a WAV after an alias
-entry. Use `sound_ripper --list` to identify the real entry that holds the audio.
+entry. Use `bf_sound_tool --list` to identify the real entry that holds the audio.
 
 **"Unsupported WAV format 0x..."** — This error applies to sample entries only. The
 tool only accepts uncompressed PCM and IEEE float WAVs for encoding. Re-export from
@@ -333,7 +333,7 @@ encoder drift.
 
 **Stereo stream sounds mono or has wrong channel content** — Verify your WAV is
 genuinely stereo (two distinct channels) and that the stream entry in the `.lvl` is
-also stereo. Use `sound_ripper --list` to check the entry's channel count. A mono
+also stereo. Use `bf_sound_tool --list` to check the entry's channel count. A mono
 stream entry will always be replaced with a mono encoding regardless of the input.
 
 **File size grew unexpectedly** — This is normal if you replaced short sounds with
@@ -348,5 +348,5 @@ target specific entries) to reduce bank size.
 **PSP stream sounds wrong after replacement** — The at3tool output must match the
 channel count and approximate duration expected by the game. Using a very different
 bitrate (`-br` value) from the original may cause playback issues on hardware. Check
-the original entry's properties with `sound_ripper --list` and match them where
+the original entry's properties with `bf_sound_tool --list` and match them where
 possible.

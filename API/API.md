@@ -1,4 +1,4 @@
-# sound_ripper API Reference
+# bf_sound_tool API Reference
 
 A Dart library for parsing and extracting audio from *Star Wars Battlefront* (2004)
 and *Star Wars Battlefront II* (2005) sound `.lvl`, `.bnk`, and `.str` files.
@@ -12,7 +12,7 @@ or a Flutter / web package.
 
 ```dart
 import 'dart:io';
-import 'package:sound_ripper/sound_ripper.dart';
+import 'package:bf_sound_tool/bf_sound_tool.dart';
 
 // 1. Load the dictionary (optional — unresolved hashes fall back to hex strings)
 final dict = Dictionary();
