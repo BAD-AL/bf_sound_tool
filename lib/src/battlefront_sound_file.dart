@@ -4,6 +4,7 @@ import 'bank_parser.dart';
 import 'dictionary.dart';
 import 'sound_record.dart';
 import 'sound_replacer.dart';
+import 'sound_replacer_ext.dart';
 import 'ucf_chunk.dart';
 import 'ucf_parser.dart';
 import 'vag_decoder.dart';
@@ -88,6 +89,7 @@ class BattlefrontSoundFile {
           audioReadSize: entry.audioReadSize,
           bankIndex: b,
           substreamInterleave: bank.substreamInterleave,
+          bankFormat: bank.format,
         ));
       }
     }
@@ -125,9 +127,9 @@ class BattlefrontSoundFile {
   ///
   /// Stream banks (Xbox and PC) → Xbox/IMA ADPCM (format 0x0069).
   /// Sample banks (PC, non-stream) → PCM16 (format 0x0001).
-  /// Xbox sample banks → Xbox ADPCM (format 0x0069).
+  /// Xbox sample banks → Xbox ADPCM (0x0069) OR PCM16 (0x0001) depending on format.
   ///
-  /// PS2 VAG is not yet implemented and will throw [UnimplementedError].
+  /// PS2 VAG is decoded to PCM16 WAV.
   ///
   /// For PS2 stereo ambient streams that require deinterleaving into
   /// separate front/back PCM files, use [extractAmbWavs] instead.
@@ -157,13 +159,27 @@ class BattlefrontSoundFile {
       return WavWriter.buildPcm16(pcm, record.sampleRate, record.channels);
     }
 
-    // Xbox: all entries are Xbox ADPCM.
-    // PC: stream entries are Xbox ADPCM (same encoding, verified by ffmpeg);
-    //     sample bank entries (e.g. common.bnk) are PCM16.
-    if (platform == 'xbox' || record.isStream) {
-      return WavWriter.buildXboxAdpcm(audio, record.sampleRate, record.channels);
+    // Xbox / PC logic:
+    // 1. Streams are always Xbox ADPCM.
+    // 2. PC Samples (e.g. common.bnk) are always PCM16.
+    // 3. Xbox Samples are usually ADPCM, but can be PCM16 if bank format is 2.
+    bool useAdpcm = false;
+    if (record.isStream) {
+      useAdpcm = true;
+    } else if (platform == 'xbox') {
+      // Bank format 2 on Xbox indicates PCM16 (e.g. ARE.lvl Bank 2).
+      // Bank format 4/5 indicates ADPCM (e.g. hot.lvl Bank 2).
+      useAdpcm = record.bankFormat != 2;
+    } else if (platform == 'pc') {
+      // PC sample banks are always PCM16.
+      useAdpcm = false;
     }
-    return WavWriter.buildPcm16(audio, record.sampleRate, record.channels);
+
+    if (useAdpcm) {
+      return WavWriter.buildXboxAdpcm(audio, record.sampleRate, record.channels);
+    } else {
+      return WavWriter.buildPcm16(audio, record.sampleRate, record.channels);
+    }
   }
 
   /// Deinterleaves a PS2 stereo ambient stream into separate front and back WAVs.
@@ -218,10 +234,40 @@ class BattlefrontSoundFile {
 
   /// Replace audio for multiple records in a single serialization pass.
   /// All entries are replaced simultaneously — no chained re-parses needed.
+  /// 
+  /// [replacements] maps each SoundRecord to its new raw audio bytes.
+  /// [newSampleRates] optionally overrides the playback frequency for specific entries.
   Uint8List replaceAudioBatch(Map<SoundRecord, Uint8List> replacements,
-          {int? newSampleRate}) =>
+          {Map<SoundRecord, int>? newSampleRates}) =>
       SoundReplacer.replaceMany(_bytes, _root, _banks, replacements, platform,
-          newSampleRate: newSampleRate);
+          newSampleRates: newSampleRates);
+
+  /// Replace the audio for [record] with a standard WAV file.
+  ///
+  /// Automatically handles resampling and platform-specific encoding
+  /// (Xbox ADPCM, VAG, etc.).
+  Uint8List replaceWithWav(SoundRecord record, Uint8List wavBytes,
+      {int? newSampleRate}) {
+    final rawAudio = SoundReplacerExt.convertWav(wavBytes, record, platform,
+        targetSampleRate: newSampleRate);
+    return replaceAudio(record, rawAudio, newSampleRate: newSampleRate);
+  }
+
+  /// Replace audio for multiple records using standard WAV files.
+  /// 
+  /// [replacements] maps each SoundRecord to its new standard WAV bytes.
+  /// [newSampleRates] optionally overrides the playback frequency for specific entries.
+  Uint8List replaceManyWithWav(Map<SoundRecord, Uint8List> replacements,
+      {Map<SoundRecord, int>? newSampleRates}) {
+    final rawReplacements = <SoundRecord, Uint8List>{};
+    for (final entry in replacements.entries) {
+      final overrideRate = newSampleRates?[entry.key];
+      rawReplacements[entry.key] = SoundReplacerExt.convertWav(
+          entry.value, entry.key, platform,
+          targetSampleRate: overrideRate);
+    }
+    return replaceAudioBatch(rawReplacements, newSampleRates: newSampleRates);
+  }
 
   // ── By-name convenience overloads ─────────────────────────────────────────
   //

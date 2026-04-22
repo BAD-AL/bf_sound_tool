@@ -33,6 +33,9 @@ class SoundRecord {
   /// Zero for sample banks or mono streams where interleaving does not apply.
   final int substreamInterleave;
 
+  /// Bank-level format identifier (tag 0xb99d8552).
+  final int bankFormat;
+
   const SoundRecord({
     required this.name,
     required this.nameHash,
@@ -46,6 +49,7 @@ class SoundRecord {
     required this.audioReadSize,
     required this.bankIndex,
     required this.substreamInterleave,
+    required this.bankFormat,
   });
 
   // ── Computed display helpers ───────────────────────────────────────────────

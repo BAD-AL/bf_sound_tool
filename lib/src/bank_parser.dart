@@ -37,6 +37,13 @@ class SoundBank {
   final UcfChunk infoChunk;
   final UcfChunk dataChunk;
 
+  /// Bank-level format identifier (tag 0xb99d8552).
+  /// Known values: 2 (PCM16 on Xbox), 4/5 (ADPCM on Xbox/PC), 6 (PSP/PS2).
+  final int format;
+
+  /// Substream count (tag 0x7aaf1a1c). 1 for normal, 2 for interleaved ambient.
+  final int numSubStreams;
+
   /// Substream interleave block size in bytes (tag "SubStreamInterleave").
   /// Xbox streams: 36864 (0x9000).  PS2 streams: 16384 (0x4000).
   /// Sample banks: 0 (field absent or irrelevant).
@@ -48,15 +55,27 @@ class SoundBank {
     required this.entries,
     required this.infoChunk,
     required this.dataChunk,
+    required this.format,
+    required this.numSubStreams,
     required this.substreamInterleave,
   });
 
-  bool get isStream => channels <= 2;
+  /// A bank is a stream if it has multiple substreams (ambient) OR 
+  /// if it is on PC/Xbox and has the SubStreamInterleave tag (even if value is small).
+  /// More reliably: if it's not a sample bank (.bnk).
+  /// Practically: if numSubStreams > 0 and substreamInterleave > 0.
+  bool get isStream => numSubStreams > 0 && substreamInterleave > 0;
 }
 
 class BankParser {
-  static const int _searchStartTag = 0x23a0d95c; // fnvHash("size")
-  static const int _aliasTag = 0x7D268157; // fnvHash("alias") — console alias entry marker
+  static const int _tagFormat = 0xb99d8552;
+  static const int _tagChannels = 0x7816084b;
+  static const int _tagSegments = 0x40fbdebd;
+  static const int _tagSize = 0x23a0d95c; // fnvHash("size")
+  static const int _tagSubStreams = 0x7aaf1a1c;
+  static const int _tagInterleave = 0x740fdb0c;
+  static const int _tagPadding = 0x809608b6;
+  static const int _aliasTag = 0x7D268157; // fnvHash("alias")
   static const int _blockSize = 2048;
 
   /// Walk the UCF tree and parse all (info, data) bank pairs.
@@ -94,33 +113,62 @@ class BankParser {
   ) {
     final r = ByteReader(fileBytes);
 
-    // Find all SearchStart tag positions within the info chunk body.
-    // Pairs are 8-byte aligned, so scan every 4 bytes.
+    // Find all size tags within the info chunk body.
     final end = infoChunk.bodyOffset + infoChunk.size;
     final positions = <int>[];
     for (int pos = infoChunk.bodyOffset; pos + 8 <= end; pos += 4) {
-      if (r.peekUint32(pos) == _searchStartTag) {
+      if (r.peekUint32(pos) == _tagSize) {
         positions.add(pos);
       }
     }
 
-    // First SearchStart = bank-level data descriptor.
-    //   bankI - 4  : wavCount (last field of bank header)
-    //   bankI - 20 : channel count (uint16 in bank header)
-    //   bankI + 12 : substream count value  (tag 0x7aaf1a1c at bankI+8)
-    //   bankI + 20 : substream interleave value (tag 0x740fdb0c at bankI+16)
-    final bankI = positions[0];
-    final wavCount = r.peekUint32(bankI - 4);
-    r.seek(bankI - 20);
-    final channels = r.readUint16();
-    final substreamInterleave = r.peekUint32(bankI + 20);
+    if (positions.isEmpty) {
+      throw FormatException('No size tags found in bank info chunk');
+    }
 
-    final isStream = channels <= 2;
+    // Parse bank header by scanning for tags before the first size tag.
+    int format = 0;
+    int channels = 1; // default to mono for sample banks
+    int wavCount = 0;
+    int numSubStreams = 0;
+    int substreamInterleave = 0;
 
-    // Parse sound entries from the remaining SearchStarts.
+    final firstSizePos = positions[0];
+    for (int p = infoChunk.bodyOffset; p + 8 <= firstSizePos + 32; p += 4) {
+      final tag = r.peekUint32(p);
+      final val = r.peekUint32(p + 4);
+      switch (tag) {
+        case _tagFormat:
+          format = val;
+        case _tagChannels:
+          channels = val;
+        case _tagSegments:
+          wavCount = val;
+        case _tagSubStreams:
+          numSubStreams = val;
+        case _tagInterleave:
+          substreamInterleave = val;
+      }
+    }
+
+    // Special case: some sample banks (like ARE.lvl Bank 2) have wavCount
+    // at a different tag (0x98b889ce) or just before size.
+    // If wavCount is 0, try to find it.
+    if (wavCount == 0) {
+      final unkTag = r.peekUint32(firstSizePos - 8);
+      if (unkTag == 0x98b889ce || unkTag == _tagSegments) {
+        wavCount = r.peekUint32(firstSizePos - 4);
+      }
+    }
+
+    final isStream = numSubStreams > 0 && substreamInterleave > 0;
+
+    // Parse sound entries from the remaining size tags.
     final entries = <SoundEntry>[];
-    int readPos = dataChunk.bodyOffset; // tracks position within data chunk body
+    int readPos = dataChunk.bodyOffset;
 
+    // Entry records start AFTER the bank data descriptor.
+    // Usually the bank descriptor has its own size tag at positions[0].
     for (int idx = 1; idx < positions.length; idx++) {
       final i = positions[idx];
 
@@ -131,16 +179,15 @@ class BankParser {
       final skipCheck1 = r.peekUint32(i + 0x18);
       final skipCheck2 = r.peekUint32(i + 0x1c);
 
-      final skip = _shouldSkip(skipCheck1, skipCheck2, platform);
-
       // When skip=true, skipCheck2 (i+0x1c) holds the alias target hash on
       // console platforms. On PC, skip fires when skipCheck2==0, so no hash.
+      final skip = _shouldSkip(skipCheck1, skipCheck2, platform);
       String? aliasFor;
       if (skip && skipCheck2 != 0) {
         aliasFor = dict.resolve(skipCheck2);
       }
 
-      // 2048-byte aligned read size for streams (matches VB output file sizes).
+      // 2048-byte aligned read size for streams.
       // Sample banks use raw dataSize with no extra padding.
       int audioReadSize = dataSize;
       if (isStream && (readPos + dataSize) % _blockSize != 0) {
@@ -176,6 +223,8 @@ class BankParser {
       entries: entries,
       infoChunk: infoChunk,
       dataChunk: dataChunk,
+      format: format,
+      numSubStreams: numSubStreams,
       substreamInterleave: substreamInterleave,
     );
   }

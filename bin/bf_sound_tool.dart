@@ -18,9 +18,8 @@ Options:
   --log-only        Log extraction plan without writing WAV files
   --replace <name>  Replace a named entry's audio (requires --with and -o)
   --with <file>     Replacement audio file (WAV auto-converted for PSP samples)
-  --rate <hz>       Override target sample rate for PSP WAV→VAG conversion
+  --rate <hz>       Override target sample rate for replacement conversion
                     (default: match original entry; PSP common: 11025, 6004, 5004)
-  --wav2vag <file>  Path to wav2vag binary (auto-detected if omitted)
   --dict <file>     Path to dictionary.txt  [auto-detected if omitted]
   -h, --help        Show this help
 ''';
@@ -41,7 +40,6 @@ Future<void> main(List<String> args) async {
   String? targetName;
   String? replaceName;
   String? replaceWith;
-  String? wav2vagPath;
   int? overrideRate;
   bool listMode = false;
   bool verifyMode = false;
@@ -65,8 +63,6 @@ Future<void> main(List<String> args) async {
         replaceName = args[++i];
       case '--with':
         replaceWith = args[++i];
-      case '--wav2vag':
-        wav2vagPath = args[++i];
       case '--rate':
         overrideRate = int.parse(args[++i]);
       case '--dict':
@@ -140,9 +136,9 @@ Future<void> main(List<String> args) async {
   }
 
   if (listMode) {
-    //_printList(allSounds);
+    _printList(allSounds);
     //_printListCsv(allSounds);
-    _printSfx(allSounds);
+    //_printSfx(allSounds);
     return;
   }
 
@@ -178,21 +174,13 @@ Future<void> main(List<String> args) async {
     stdout.writeln('Replacing "$replaceName" with $replaceWith...');
     stdout.writeln('  Original: ${record.dataSize} bytes'
         '  offset=${record.formattedOffset}');
-    Uint8List newAudio;
-    if (platform == 'psp' &&
-        !record.isStream &&
-        replaceWith.toLowerCase().endsWith('.wav')) {
-      final targetRate = overrideRate ?? record.sampleRate;
-      newAudio = await _wavToVag(replaceWith, targetRate, wav2vagPath);
-      if (newAudio.isEmpty) { exitCode = 1; return; }
-    } else {
-      newAudio = withFile.readAsBytesSync();
-    }
-    final newBytes = sf.replaceAudio(record, newAudio,
-        newSampleRate: overrideRate);
+    
+    final withBytes = withFile.readAsBytesSync();
+    final newBytes = replaceWith.toLowerCase().endsWith('.wav')
+        ? sf.replaceWithWav(record, withBytes, newSampleRate: overrideRate)
+        : sf.replaceAudio(record, withBytes, newSampleRate: overrideRate);
+        
     File(outputFile).writeAsBytesSync(newBytes);
-    stdout.writeln('  New audio: ${newAudio.length} bytes'
-        '${overrideRate != null ? "  rate=$overrideRate" : ""}');
     stdout.writeln('  Written: $outputFile (${newBytes.length} bytes)');
     return;
   }
@@ -248,106 +236,6 @@ Future<void> main(List<String> args) async {
     '\nDone. Extracted: $extracted  Skipped: $skipped'
     '${logOnly ? "  (log-only, no files written)" : "  → $outputDir/"}',
   );
-}
-
-/// Converts [wavPath] to raw VAG ADPCM by running ffmpeg + wav2vag.
-/// Resamples to [sampleRate] and forces mono.
-/// Returns raw VAG blocks (VAGp header stripped).
-Future<Uint8List> _wavToVag(
-    String wavPath, int sampleRate, String? wav2vagOverride) async {
-  final wav2vag = wav2vagOverride ?? _findWav2Vag();
-  if (wav2vag == null) {
-    stderr.writeln('Error: wav2vag not found. Install it or use --wav2vag <path>.');
-    return Uint8List(0);
-  }
-
-  final tmp = Directory.systemTemp.createTempSync('bf_sound_tool_');
-  final vagOut = '${tmp.path}/out.vag';
-
-  try {
-    final wavInfo = _readWavFmt(wavPath);
-    final needsConvert = wavInfo == null ||
-        wavInfo.$1 != sampleRate ||
-        wavInfo.$2 != 1;
-
-    final wavForVag = needsConvert
-        ? '${tmp.path}/resampled.wav'
-        : wavPath;
-
-    if (needsConvert) {
-      stdout.writeln('  Resampling WAV → ${sampleRate}Hz mono...');
-      final ffmpeg = await Process.run('ffmpeg', [
-        '-y', '-i', wavPath,
-        '-ar', '$sampleRate', '-ac', '1',
-        wavForVag,
-      ]);
-      if (ffmpeg.exitCode != 0) {
-        stderr.writeln('ffmpeg failed:\n${ffmpeg.stderr}');
-        return Uint8List(0);
-      }
-    } else {
-      stdout.writeln('  WAV already ${sampleRate}Hz mono, skipping ffmpeg.');
-    }
-
-    stdout.writeln('  Encoding VAG...');
-    final vag = await Process.run(wav2vag, [wavForVag, vagOut]);
-    if (vag.exitCode != 0) {
-      stderr.writeln('wav2vag failed:\n${vag.stderr}');
-      return Uint8List(0);
-    }
-
-    final vagBytes = File(vagOut).readAsBytesSync();
-    // Strip 48-byte VAGp header.
-    stdout.writeln('  VAG size: ${vagBytes.length - 48} bytes (raw blocks)');
-    return Uint8List.sublistView(vagBytes, 48);
-  } finally {
-    tmp.deleteSync(recursive: true);
-  }
-}
-
-/// Reads the fmt chunk of a WAV file and returns (sampleRate, channels).
-/// Returns null if the file is not a valid PCM WAV.
-(int, int)? _readWavFmt(String wavPath) {
-  try {
-    final bytes = File(wavPath).readAsBytesSync();
-    if (bytes.length < 36) return null;
-    // RIFF....WAVEfmt
-    if (bytes[0] != 0x52 || bytes[1] != 0x49 ||
-        bytes[2] != 0x46 || bytes[3] != 0x46) { return null; }
-    if (bytes[8]  != 0x57 || bytes[9]  != 0x41 ||
-        bytes[10] != 0x56 || bytes[11] != 0x45) { return null; }
-    final channels   = bytes[22] | (bytes[23] << 8);
-    final sampleRate = bytes[24] | (bytes[25] << 8) |
-                       (bytes[26] << 16) | (bytes[27] << 24);
-    return (sampleRate, channels);
-  } catch (_) {
-    return null;
-  }
-}
-
-/// Searches for wav2vag in the current directory tree then on PATH.
-String? _findWav2Vag() {
-  // Check common relative locations first.
-  final candidates = [
-    'wav2vag/release/wav2vag',
-    'wav2vag',
-    '../wav2vag/release/wav2vag',
-  ];
-  for (final c in candidates) {
-    final f = File(c);
-    if (f.existsSync()) return f.absolute.path;
-  }
-
-  // Fall back to which/where.
-  try {
-    final result = Process.runSync(
-        Platform.isWindows ? 'where' : 'which', ['wav2vag']);
-    if (result.exitCode == 0) {
-      return (result.stdout as String).trim().split('\n').first.trim();
-    }
-  } catch (_) {}
-
-  return null;
 }
 
 void _verify(Uint8List bytes, String platform, List<SoundRecord> allSounds) {

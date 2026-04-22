@@ -4,6 +4,15 @@ import 'sound_record.dart';
 import 'ucf_chunk.dart';
 import 'ucf_writer.dart';
 
+/// "The Architect" for sound replacing. This file handles the 
+/// Low-level logic for managing the UCF/LVL file structure during sound replacement.
+/// This class handles the "surgical" part of the replacement:
+/// - Calculating new chunk sizes and block alignments.
+/// - Patching metadata tags (size, padding, sample rate) in the "info" chunk.
+/// - Rebuilding the "data" chunk by splicing in new raw audio bytes.
+/// 
+/// It expects bytes to ALREADY be in the correct platform-specific format 
+/// (VAG, Xbox ADPCM, etc.). For high-level WAV conversion, use [SoundReplacerExt].
 class SoundReplacer {
   static const int _searchStartTag = 0x23a0d95c;
   static const int _blockSize = 2048;
@@ -42,14 +51,17 @@ class SoundReplacer {
 
   /// Replace audio for multiple entries across any number of banks in a single
   /// serialization pass. [replacements] maps each SoundRecord to its new raw
-  /// audio bytes. [newSampleRate] is applied uniformly to all replaced entries.
+  /// audio bytes.
+  /// 
+  /// Optionally provide [newSampleRates] to update the playback frequency for 
+  /// specific entries.
   static Uint8List replaceMany(
     Uint8List fileBytes,
     UcfChunk root,
     List<SoundBank> banks,
     Map<SoundRecord, Uint8List> replacements,
     String platform, {
-    int? newSampleRate,
+    Map<SoundRecord, int>? newSampleRates,
   }) {
     // Group replacements by bankIndex.
     final byBank = <int, Map<SoundRecord, Uint8List>>{};
@@ -64,7 +76,7 @@ class SoundReplacer {
 
       final newInfoBody = _patchInfoChunkMany(
           fileBytes, bank, bankReps, platform,
-          newSampleRate: newSampleRate);
+          newSampleRates: newSampleRates);
       final newDataBody = _buildDataChunkMany(
           fileBytes, bank, bankReps, platform);
 
@@ -82,7 +94,7 @@ class SoundReplacer {
     SoundBank bank,
     Map<SoundRecord, Uint8List> replacements,
     String platform, {
-    int? newSampleRate,
+    Map<SoundRecord, int>? newSampleRates,
   }) {
     final body = Uint8List.fromList(Uint8List.sublistView(
         fileBytes, bank.infoChunk.bodyOffset,
@@ -90,13 +102,13 @@ class SoundReplacer {
 
     final positions = _findSearchStarts(fileBytes, bank.infoChunk);
 
-    // Build audioOffset → (newSize, targetIdx) lookup.
-    final repByOffset = <int, (Uint8List, int)>{};
+    // Build audioOffset → (newSize, record) lookup.
+    final repByOffset = <int, (Uint8List, SoundRecord)>{};
     for (int i = 0; i < bank.entries.length; i++) {
       final e = bank.entries[i];
       for (final rep in replacements.entries) {
         if (rep.key.audioOffset == e.audioOffset) {
-          repByOffset[e.audioOffset] = (rep.value, i);
+          repByOffset[e.audioOffset] = (rep.value, rep.key);
           break;
         }
       }
@@ -109,14 +121,17 @@ class SoundReplacer {
       final rep = repByOffset[e.audioOffset];
       if (rep != null) {
         final newDataSize = rep.$1.length;
+        final record = rep.$2;
         final newBlockPad = _calcBlockPad(newDataSize, bank.isStream, platform,
             bank.substreamInterleave);
         totalSize += newDataSize + newBlockPad;
         final ePos = positions[i + 1] - bank.infoChunk.bodyOffset;
         _patchUint32(body, ePos + 4,    newDataSize);
         _patchUint32(body, ePos + 0x14, newBlockPad);
-        if (newSampleRate != null) {
-          _patchUint32(body, ePos - 4, newSampleRate);
+        
+        final overrideRate = newSampleRates?[record];
+        if (overrideRate != null) {
+          _patchUint32(body, ePos - 4, overrideRate);
         }
       } else {
         totalSize += e.dataSize + e.blockPadding;
