@@ -9,7 +9,8 @@ int fnvHash(String input) {
   for (int i = 0; i < input.length; i++) {
     final int c = input.codeUnitAt(i) | 0x20;
     hash ^= c;
-    hash = (hash * prime) & 0xFFFFFFFF;
+    // Use BigInt for precision-safe 32-bit multiplication on Web
+    hash = (BigInt.from(hash) * BigInt.from(prime)).toUnsigned(32).toInt();
   }
   return hash;
 }

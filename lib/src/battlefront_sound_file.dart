@@ -43,8 +43,12 @@ class BattlefrontSoundFile {
     String? extraDictionary,
   })  : _bytes = bytes,
         _root = UcfParser.parse(bytes),
-        _banks = _parseBanks(bytes, platform, extraDictionary),
-        _records = _buildRecords(bytes, platform, extraDictionary);
+        _banks = [],
+        _records = [] {
+    final dict = _buildDict(extraDictionary);
+    _banks.addAll(BankParser.parseBanks(_root, _bytes, dict, platform: platform));
+    _records.addAll(_buildRecordsFromBanks(_banks));
+  }
 
   // ── Construction ──────────────────────────────────────────────────────────
 
@@ -54,22 +58,7 @@ class BattlefrontSoundFile {
     return dict;
   }
 
-  static List<SoundBank> _parseBanks(
-    Uint8List bytes,
-    String platform,
-    String? extraDictionary,
-  ) {
-    final dict = _buildDict(extraDictionary);
-    final root = UcfParser.parse(bytes);
-    return BankParser.parseBanks(root, bytes, dict, platform: platform);
-  }
-
-  static List<SoundRecord> _buildRecords(
-    Uint8List bytes,
-    String platform,
-    String? extraDictionary,
-  ) {
-    final banks = _parseBanks(bytes, platform, extraDictionary);
+  static List<SoundRecord> _buildRecordsFromBanks(List<SoundBank> banks) {
     final records = <SoundRecord>[];
     for (int b = 0; b < banks.length; b++) {
       final bank = banks[b];

@@ -8,7 +8,7 @@ class Dictionary {
   /// Add a single name, computing its hash automatically.
   void addName(String name) {
     final hash = fnvHash(name);
-    _map.putIfAbsent(hash, () => name);
+    _map[hash] = name;
   }
 
   /// Add all names from [lines], skipping blank lines and trimming whitespace.
