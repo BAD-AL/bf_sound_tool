@@ -51,7 +51,7 @@ class UcfParser {
 
       if (childId == 0) return const []; // invalid child — treat whole body as leaf
 
-      final aligned = (childSize + 3) & ~3;
+      final aligned = ((childSize + 3) ~/ 4) * 4;
       final childTotal = 8 + aligned;
 
       if (pos + childTotal > end) return const []; // child overflows body

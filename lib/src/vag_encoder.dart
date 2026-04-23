@@ -10,39 +10,42 @@ import 'dart:typed_data';
 /// Encoder exhaustively tests all 5 filter coefficients × 13 shift values and
 /// picks the combination with minimum mean-squared reconstruction error per block.
 class VagEncoder {
-  // SPU prediction coefficients (must match VagDecoder exactly).
-  static const List<double> _f0 = [0.0, 0.9375, 1.796875, 1.53125, 1.90625];
-  static const List<double> _f1 = [0.0, 0.0, -0.8125, -0.859375, -0.9375];
+  // PS2 SPU prediction coefficients scaled by 2048 for integer math.
+  static const List<int> _k0 = [0, 1920, 3680, 3136, 3904];
+  static const List<int> _k1 = [0, 0, -1664, -1760, -1920];
 
   /// Encodes [samples] (mono Int16) to raw VAG ADPCM blocks.
   static Uint8List encode(Int16List samples) {
     if (samples.isEmpty) return Uint8List(0);
     final blockCount = (samples.length + 27) ~/ 28;
     final out = Uint8List(blockCount * 16);
-    double prev1 = 0, prev2 = 0;
+    int prev1 = 0, prev2 = 0;
 
     for (int b = 0; b < blockCount; b++) {
       final start = b * 28;
       final count = (start + 28 > samples.length) ? samples.length - start : 28;
 
       // Zero-pad last block to 28 samples.
-      final block = List<double>.filled(28, 0.0);
-      for (int i = 0; i < count; i++) { block[i] = samples[start + i].toDouble(); }
+      final block = Int32List(28);
+      for (int i = 0; i < count; i++) { block[i] = samples[start + i]; }
 
       // Exhaustive search: find best (filter, shift) by minimum squared error.
       int bestFilter = 0, bestShift = 0;
       double bestErr = double.maxFinite;
 
       for (int fi = 0; fi < 5; fi++) {
+        final k0 = _k0[fi];
+        final k1 = _k1[fi];
         for (int sh = 0; sh <= 12; sh++) {
           double err = 0;
-          double p1 = prev1, p2 = prev2;
+          int p1 = prev1, p2 = prev2;
           for (int i = 0; i < 28; i++) {
-            final predicted = _f0[fi] * p1 + _f1[fi] * p2;
-            final scale = (1 << sh).toDouble();
+            // Replicate VagDecoder logic for prediction
+            int predicted = (p1 * k0 + p2 * k1) >> 11;
+            final scale = (1 << sh);
             final nibble = ((block[i] - predicted) / scale).round().clamp(-8, 7);
-            final recon = (predicted + nibble * scale).clamp(-32768.0, 32767.0);
-            final e = block[i] - recon;
+            final recon = (predicted + nibble * scale).clamp(-32768, 32767);
+            final e = (block[i] - recon).toDouble();
             err += e * e;
             p2 = p1;
             p1 = recon;
@@ -61,12 +64,14 @@ class VagEncoder {
       out[blockOffset + 1] = (b == blockCount - 1) ? 0x01 : 0x00;
 
       // Encode nibbles with chosen params, updating predictor state.
-      double p1 = prev1, p2 = prev2;
+      int p1 = prev1, p2 = prev2;
+      final k0 = _k0[bestFilter];
+      final k1 = _k1[bestFilter];
       for (int i = 0; i < 28; i++) {
-        final predicted = _f0[bestFilter] * p1 + _f1[bestFilter] * p2;
-        final scale     = (1 << bestShift).toDouble();
+        int predicted = (p1 * k0 + p2 * k1) >> 11;
+        final scale     = (1 << bestShift);
         final nibble    = ((block[i] - predicted) / scale).round().clamp(-8, 7);
-        final recon     = (predicted + nibble * scale).clamp(-32768.0, 32767.0);
+        final recon     = (predicted + nibble * scale).clamp(-32768, 32767);
 
         final byteIdx = blockOffset + 2 + i ~/ 2;
         if (i.isEven) {

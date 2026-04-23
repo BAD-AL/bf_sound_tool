@@ -13,9 +13,9 @@ class VagDecoder {
   static const int blockSize = 16;
   static const int samplesPerBlock = 28;
 
-  // PS2 SPU prediction coefficients (f0, f1) for filter indices 0-4.
-  static const List<double> _f0 = [0.0, 0.9375, 1.796875, 1.53125, 1.90625];
-  static const List<double> _f1 = [0.0, 0.0, -0.8125, -0.859375, -0.9375];
+  // PS2 SPU prediction coefficients scaled by 2048 for integer math.
+  static const List<int> _k0 = [0, 1920, 3680, 3136, 3904];
+  static const List<int> _k1 = [0, 0, -1664, -1760, -1920];
 
   /// Decode [vagData] to interleaved signed PCM16 bytes.
   ///
@@ -57,23 +57,23 @@ class VagDecoder {
   // Output is interleaved stereo PCM16: [L0 R0 L1 R1 ...].
 
   static Uint8List _decodeStereo(Uint8List data, int interleaveBytes) {
-    final blocksPerChunk = interleaveBytes ~/ blockSize;
     final totalBlocks = data.length ~/ blockSize;
+    final maxSamplesPerChannel = totalBlocks * samplesPerBlock;
 
-    // Separate the two channels into their own block arrays first.
-    final chL = <int>[];
-    final chR = <int>[];
+    final chL = Int16List(maxSamplesPerChannel);
+    final chR = Int16List(maxSamplesPerChannel);
     int sL1 = 0, sL2 = 0, sR1 = 0, sR2 = 0;
+    int lOff = 0, rOff = 0;
 
+    final blocksPerChunk = interleaveBytes ~/ blockSize;
     int blockIdx = 0;
     while (blockIdx < totalBlocks) {
       // Left channel chunk
       final lCount = _blocksInChunk(blockIdx, blocksPerChunk, totalBlocks);
       for (int b = 0; b < lCount; b++) {
-        final tmp = Int16List(samplesPerBlock);
-        _decodeBlock(data, (blockIdx + b) * blockSize, tmp, 0, sL1, sL2,
+        _decodeBlock(data, (blockIdx + b) * blockSize, chL, lOff, sL1, sL2,
             (ns1, ns2) { sL1 = ns1; sL2 = ns2; });
-        chL.addAll(tmp);
+        lOff += samplesPerBlock;
       }
       blockIdx += lCount;
       if (blockIdx >= totalBlocks) break;
@@ -81,16 +81,15 @@ class VagDecoder {
       // Right channel chunk
       final rCount = _blocksInChunk(blockIdx, blocksPerChunk, totalBlocks);
       for (int b = 0; b < rCount; b++) {
-        final tmp = Int16List(samplesPerBlock);
-        _decodeBlock(data, (blockIdx + b) * blockSize, tmp, 0, sR1, sR2,
+        _decodeBlock(data, (blockIdx + b) * blockSize, chR, rOff, sR1, sR2,
             (ns1, ns2) { sR1 = ns1; sR2 = ns2; });
-        chR.addAll(tmp);
+        rOff += samplesPerBlock;
       }
       blockIdx += rCount;
     }
 
     // Interleave L and R into stereo PCM16
-    final len = chL.length < chR.length ? chL.length : chR.length;
+    final len = lOff < rOff ? lOff : rOff;
     final stereo = Int16List(len * 2);
     for (int i = 0; i < len; i++) {
       stereo[i * 2]     = chL[i];
@@ -118,20 +117,22 @@ class VagDecoder {
     final header = data[offset];
     final shift  = 12 - (header & 0x0F);
     final filter = (header >> 4) & 0x0F;
-    // byte[1] is flags — we decode all blocks regardless (file size is authoritative)
 
-    final f0 = filter < _f0.length ? _f0[filter] : 0.0;
-    final f1 = filter < _f1.length ? _f1[filter] : 0.0;
+    final k0 = filter < _k0.length ? _k0[filter] : 0;
+    final k1 = filter < _k1.length ? _k1[filter] : 0;
 
     int idx = outOffset;
     for (int i = 0; i < 14; i++) {
       final byte = data[offset + 2 + i];
-      // Low nibble first, then high nibble
       for (int nibbleIdx = 0; nibbleIdx < 2; nibbleIdx++) {
         final raw = nibbleIdx == 0 ? (byte & 0x0F) : ((byte >> 4) & 0x0F);
-        // Sign-extend 4-bit value
         final signed = raw > 7 ? raw - 16 : raw;
-        final sample = ((signed << shift) + f0 * s1 + f1 * s2).round();
+        
+        // Fixed-point integer math (11-bit scale)
+        int sample = (signed << shift) << 11;
+        sample += (s1 * k0) + (s2 * k1);
+        sample >>= 11;
+
         final clamped = sample.clamp(-32768, 32767);
         out[idx++] = clamped;
         s2 = s1;
