@@ -9,6 +9,7 @@ import 'ucf_chunk.dart';
 import 'ucf_parser.dart';
 import 'vag_decoder.dart';
 import 'wav_writer.dart';
+import 'xbox_adpcm_decoder.dart';
 
 /// High-level API for a Battlefront sound `.lvl` / `.bnk` / `.str` file.
 ///
@@ -152,20 +153,21 @@ class BattlefrontSoundFile {
     // 1. Streams are always Xbox ADPCM.
     // 2. PC Samples (e.g. common.bnk) are always PCM16.
     // 3. Xbox Samples are usually ADPCM, but can be PCM16 if bank format is 2.
-    bool useAdpcm = false;
+    bool encodedAsAdpcm = false;
     if (record.isStream) {
-      useAdpcm = true;
+      encodedAsAdpcm = true;
     } else if (platform == 'xbox') {
       // Bank format 2 on Xbox indicates PCM16 (e.g. ARE.lvl Bank 2).
       // Bank format 4/5 indicates ADPCM (e.g. hot.lvl Bank 2).
-      useAdpcm = record.bankFormat != 2;
+      encodedAsAdpcm = record.bankFormat != 2;
     } else if (platform == 'pc') {
       // PC sample banks are always PCM16.
-      useAdpcm = false;
+      encodedAsAdpcm = false;
     }
 
-    if (useAdpcm) {
-      return WavWriter.buildXboxAdpcm(audio, record.sampleRate, record.channels);
+    if (encodedAsAdpcm) {
+      final pcm = XboxAdpcmDecoder.decode(audio, record.channels);
+      return WavWriter.buildPcm16(pcm, record.sampleRate, record.channels);
     } else {
       return WavWriter.buildPcm16(audio, record.sampleRate, record.channels);
     }
