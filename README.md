@@ -4,6 +4,8 @@ A pure-Dart library for parsing, extracting, and modifying sound files (`.lvl`, 
 
 Designed with web compatibility in mind, this library enables the creation of browser-based modding tools without requiring native external binaries like `ffmpeg` for core tasks.
 
+Try online version at: https://bad-al.github.io/bf_sound_swapper/ (sound swap only)
+
 ## Key Features
 
 - **Multi-Platform Support:** Full handling for Xbox, PC, PS2, and PSP sound formats.
