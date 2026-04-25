@@ -8,7 +8,9 @@ import 'sound_replacer_ext.dart';
 import 'ucf_chunk.dart';
 import 'ucf_parser.dart';
 import 'vag_decoder.dart';
+import 'wav_parser.dart';
 import 'wav_writer.dart';
+
 import 'xbox_adpcm_decoder.dart';
 
 /// High-level API for a Battlefront sound `.lvl` / `.bnk` / `.str` file.
@@ -239,9 +241,15 @@ class BattlefrontSoundFile {
   /// (Xbox ADPCM, VAG, etc.).
   Uint8List replaceWithWav(SoundRecord record, Uint8List wavBytes,
       {int? newSampleRate}) {
+    int? targetRate = newSampleRate;
+    if (targetRate == null) {
+      final info = WavParser.readInfo(wavBytes);
+      if (info != null) targetRate = info.sampleRate;
+    }
+
     final rawAudio = SoundReplacerExt.convertWav(wavBytes, record, platform,
-        targetSampleRate: newSampleRate);
-    return replaceAudio(record, rawAudio, newSampleRate: newSampleRate);
+        targetSampleRate: targetRate);
+    return replaceAudio(record, rawAudio, newSampleRate: targetRate);
   }
 
   /// Replace audio for multiple records using standard WAV files.
@@ -251,13 +259,28 @@ class BattlefrontSoundFile {
   Uint8List replaceManyWithWav(Map<SoundRecord, Uint8List> replacements,
       {Map<SoundRecord, int>? newSampleRates}) {
     final rawReplacements = <SoundRecord, Uint8List>{};
+    final resolvedRates = <SoundRecord, int>{};
+    if (newSampleRates != null) resolvedRates.addAll(newSampleRates);
+
     for (final entry in replacements.entries) {
-      final overrideRate = newSampleRates?[entry.key];
-      rawReplacements[entry.key] = SoundReplacerExt.convertWav(
-          entry.value, entry.key, platform,
-          targetSampleRate: overrideRate);
+      final record = entry.key;
+      final wavBytes = entry.value;
+      
+      // Peek at WAV header to get native rate if not overridden
+      int? targetRate = resolvedRates[record];
+      if (targetRate == null) {
+        final info = WavParser.readInfo(wavBytes);
+        if (info != null) {
+          targetRate = info.sampleRate;
+          resolvedRates[record] = info.sampleRate;
+        }
+      }
+
+      rawReplacements[record] = SoundReplacerExt.convertWav(
+          wavBytes, record, platform,
+          targetSampleRate: targetRate);
     }
-    return replaceAudioBatch(rawReplacements, newSampleRates: newSampleRates);
+    return replaceAudioBatch(rawReplacements, newSampleRates: resolvedRates);
   }
 
   // ── By-name convenience overloads ─────────────────────────────────────────

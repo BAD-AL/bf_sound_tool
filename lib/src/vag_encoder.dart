@@ -41,7 +41,7 @@ class VagEncoder {
           int p1 = prev1, p2 = prev2;
           for (int i = 0; i < 28; i++) {
             // Replicate VagDecoder logic for prediction
-            int predicted = (p1 * k0 + p2 * k1) >> 11;
+            int predicted = (p1 * k0 + p2 * k1 + 1024) >> 11;
             final scale = (1 << sh);
             final nibble = ((block[i] - predicted) / scale).round().clamp(-8, 7);
             final recon = (predicted + nibble * scale).clamp(-32768, 32767);
@@ -68,7 +68,7 @@ class VagEncoder {
       final k0 = _k0[bestFilter];
       final k1 = _k1[bestFilter];
       for (int i = 0; i < 28; i++) {
-        int predicted = (p1 * k0 + p2 * k1) >> 11;
+        int predicted = (p1 * k0 + p2 * k1 + 1024) >> 11;
         final scale     = (1 << bestShift);
         final nibble    = ((block[i] - predicted) / scale).round().clamp(-8, 7);
         final recon     = (predicted + nibble * scale).clamp(-32768, 32767);

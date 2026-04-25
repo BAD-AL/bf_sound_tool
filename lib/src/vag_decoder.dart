@@ -131,7 +131,7 @@ class VagDecoder {
         // Fixed-point integer math (11-bit scale)
         int sample = (signed << shift) << 11;
         sample += (s1 * k0) + (s2 * k1);
-        sample >>= 11;
+        sample = (sample + 1024) >> 11;
 
         final clamped = sample.clamp(-32768, 32767);
         out[idx++] = clamped;

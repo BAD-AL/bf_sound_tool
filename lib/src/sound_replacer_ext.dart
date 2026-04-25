@@ -30,7 +30,7 @@ class SoundReplacerExt {
     int? targetSampleRate,
   }) {
     final wav = WavParser.parse(wavBytes);
-    final rate = targetSampleRate ?? record.sampleRate;
+    final rate = targetSampleRate ?? wav.sampleRate;
 
     // 1. Resample and Mix to mono if necessary
     Int16List samples;
