@@ -80,4 +80,4 @@ For a deep dive into the underlying UCF container and bank formats, see [Battlef
 
 ## Credits
 
-Developed for the Battlefront modding community. Special thanks to the creators of the original VB ripper and the documentation efforts of the community over the last 20 years.
+Developed for the Battlefront modding community. Special thanks to [Phantom567459](https://github.com/phantom567459) and the documentation efforts of the community over the last 20 years.
