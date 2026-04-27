@@ -20,6 +20,9 @@ Options:
   --with <file>     Replacement audio file (WAV auto-converted for PSP samples)
   --rate <hz>       Override target sample rate for replacement conversion
                     (default: match original entry; PSP common: 11025, 6004, 5004)
+  --at3tool <path>  Path to Sony at3tool.exe (required for --at3-convert)
+  --at3-convert     Surgically convert all PS2 VAG streams in a .str to 
+                    PSP ATRAC3+ streams. Requires --at3tool and -o.
   --dict <file>     Path to dictionary.txt  [auto-detected if omitted]
   -h, --help        Show this help
 ''';
@@ -44,6 +47,9 @@ Future<void> main(List<String> args) async {
   bool listMode = false;
   bool verifyMode = false;
   bool logOnly = false;
+  bool at3Convert = false;
+
+  String? at3toolPath;
 
   for (int i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -65,6 +71,8 @@ Future<void> main(List<String> args) async {
         replaceWith = args[++i];
       case '--rate':
         overrideRate = int.parse(args[++i]);
+      case '--at3tool':
+        at3toolPath = args[++i];
       case '--dict':
         dictPath = args[++i];
       case '--list':
@@ -73,6 +81,8 @@ Future<void> main(List<String> args) async {
         verifyMode = true;
       case '--log-only':
         logOnly = true;
+      case '--at3-convert':
+        at3Convert = true;
       case '--extract':
         break; // default action, no-op
     }
@@ -111,7 +121,7 @@ Future<void> main(List<String> args) async {
 
   // --- parse (built-in dictionary always loaded automatically) ---
   stdout.writeln('Parsing $inputFile for $platform ($version)...');
-  final sf = BattlefrontSoundFile(
+  var sf = BattlefrontSoundFile(
     file.readAsBytesSync(),
     platform,
     version,
@@ -144,6 +154,130 @@ Future<void> main(List<String> args) async {
 
   if (verifyMode) {
     _verify(file.readAsBytesSync(), platform, allSounds);
+    return;
+  }
+
+  // --- at3 convert ---
+  if (at3Convert) {
+    if (at3toolPath == null) {
+      stderr.writeln('Error: --at3-convert requires --at3tool <path>');
+      exitCode = 1; return;
+    }
+    if (outputFile == null) {
+      stderr.writeln('Error: --at3-convert requires -o <output.str>');
+      exitCode = 1; return;
+    }
+
+    final activeStreams = sf.getActiveSounds().where((r) => r.isStream).toList();
+    if (activeStreams.isEmpty) {
+      stdout.writeln('No streams found to convert.');
+      return;
+    }
+
+    stdout.writeln('Surgically converting ${activeStreams.length} streams to ATRAC3+...');
+    final tempDir = Directory.systemTemp.createTempSync('bf_at3_');
+    final replacements = <SoundRecord, Uint8List>{};
+
+    try {
+      for (final record in activeStreams) {
+        // 0. Check raw audio first to see if it's already ATRAC3+
+        // This avoids calling sf.extractWav() (which might try to decode VAG)
+        // on data that is already converted.
+        final rawAudio = sf.extractRawAudio(record);
+        if (rawAudio.length > 12 && rawAudio[0] == 0x52 && rawAudio[1] == 0x49) {
+          // RIFF header detected. Let's check if it's a Sony format (AT3+).
+          final info = WavParser.readInfo(rawAudio);
+          if (info != null && (info.format == 0x0270 || info.format == 0xFFFE)) {
+            stdout.writeln('  ${record.name.padRight(40)} ... SKIPPED (Already ATRAC3+)');
+            continue;
+          }
+        }
+
+        stdout.write('  ${record.name.padRight(40)} ... ');
+        
+        try {
+          // 1. Extract and decode to PCM using the library's existing logic
+          // This handles PS2 interleave correctly if sf is ps2.
+          final pcmWavBytes = sf.extractWav(record);
+          final wav = WavParser.parse(pcmWavBytes);
+
+          // 2. Resample to 44100 Hz (MANDATORY for at3tool.exe)
+          Int16List samples;
+          if (wav.sampleRate != 44100) {
+            stdout.write('resampling ${wav.sampleRate} -> 44100 ... ');
+            if (wav.channels == 1) {
+              samples = PcmResampler.resample(wav.samples, wav.sampleRate, 44100);
+            } else {
+              // Stereo resample
+              final resL = PcmResampler.resample(wav.channelSamples[0], wav.sampleRate, 44100);
+              final resR = PcmResampler.resample(wav.channelSamples[1], wav.sampleRate, 44100);
+              samples = Int16List(resL.length * 2);
+              for (int i = 0; i < resL.length; i++) {
+                samples[i * 2] = resL[i];
+                samples[i * 2 + 1] = resR[i];
+              }
+            }
+          } else {
+            if (wav.channels == 1) {
+              samples = wav.samples;
+            } else {
+              // Ensure interleaved for stereo
+              samples = Int16List(wav.channelSamples[0].length * 2);
+              for (int i = 0; i < wav.channelSamples[0].length; i++) {
+                samples[i * 2] = wav.channelSamples[0][i];
+                samples[i * 2 + 1] = wav.channelSamples[1][i];
+              }
+            }
+          }
+
+          final pcmWav = WavWriter.buildPcm16(
+            samples.buffer.asUint8List(samples.offsetInBytes, samples.lengthInBytes), 
+            44100, 
+            wav.channels
+          );
+          final inPath = '${tempDir.path}/${record.name}.wav';
+          final outPath = '${tempDir.path}/${record.name}.at3.wav';
+          File(inPath).writeAsBytesSync(pcmWav);
+
+          // 3. Encode to AT3+
+          final args = ['-e', inPath, outPath, '-br', '128'];
+          
+          ProcessResult result;
+          if (at3toolPath!.toLowerCase().startsWith('wine ')) {
+            final parts = at3toolPath!.split(' ');
+            final exe = parts[0];
+            final remaining = parts.sublist(1)..addAll(args);
+            result = await Process.run(exe, remaining);
+          } else {
+            result = await Process.run(at3toolPath!, args);
+          }
+
+          if (result.exitCode != 0) {
+            stdout.writeln('FAILED (at3tool error: ${result.stderr})');
+            continue;
+          }
+
+          replacements[record] = File(outPath).readAsBytesSync();
+          stdout.writeln('OK');
+        } catch (e) {
+          stdout.writeln('FAILED (Exception: $e)');
+        }
+      }
+
+      if (replacements.isNotEmpty) {
+        stdout.writeln('\nInjecting ${replacements.length} AT3+ streams...');
+        // We override the sample rate to 44100 because that's what we resampled to
+        // and what at3tool expects.
+        final rates = { for (var r in replacements.keys) r: 44100 };
+        final newBytes = sf.replaceAudioBatch(replacements, 
+            newSampleRates: rates, 
+            overridePlatform: 'psp');
+        File(outputFile).writeAsBytesSync(newBytes);
+        stdout.writeln('Written: $outputFile (${newBytes.length} bytes)');
+      }
+    } finally {
+      tempDir.deleteSync(recursive: true);
+    }
     return;
   }
 

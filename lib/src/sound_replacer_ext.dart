@@ -29,6 +29,20 @@ class SoundReplacerExt {
     String platform, {
     int? targetSampleRate,
   }) {
+    // 0. PSP ATRAC3+ Pass-through
+    // If the platform is PSP and it's a stream, we expect an ATRAC3+ RIFF/WAV.
+    // These are passed through as-is because we cannot (and should not) 
+    // decode/resample/encode them in Dart.
+    if (platform == 'psp' && record.isStream) {
+      final info = WavParser.readInfo(wavBytes);
+      if (info != null && (info.format == 0xFFFE || info.format == 0x0270)) {
+        return wavBytes;
+      }
+      // If it's a regular PCM WAV, we'll continue and try to encode it as VAG,
+      // which is what the current code does, though it's likely not what
+      // is desired for PSP streams. 
+    }
+
     final wav = WavParser.parse(wavBytes);
     final rate = targetSampleRate ?? wav.sampleRate;
 

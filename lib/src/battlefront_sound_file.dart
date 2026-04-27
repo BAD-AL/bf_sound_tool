@@ -128,10 +128,20 @@ class BattlefrontSoundFile {
   Uint8List extractWav(SoundRecord record) {
     final audio = extractRawAudio(record);
 
-    // PSP streams: audio is already a complete RIFF/WAV file (WAVE_FORMAT_EXTENSIBLE,
-    // ATRAC3plus subformat). Return bytes as-is — no header construction needed.
+    // PSP streams: 
+    // If the data starts with 'RIFF', it's already an ATRAC3plus WAV. Return as-is.
+    // If it DOESN'T start with 'RIFF', it's likely a PS2 VAG stream we're trying to convert.
     if (platform == 'psp' && record.isStream) {
-      return audio;
+      if (audio.length > 4 && audio[0] == 0x52 && audio[1] == 0x49) {
+        return audio;
+      }
+      // Fall through to decode as VAG.
+      final pcm = VagDecoder.decode(
+        audio,
+        record.channels,
+        record.substreamInterleave,
+      );
+      return WavWriter.buildPcm16(pcm, record.sampleRate, record.channels);
     }
 
     // PSP samples: raw VAG ADPCM blocks, always mono (same decoder as PS2).
@@ -228,11 +238,13 @@ class BattlefrontSoundFile {
   /// Replace audio for multiple records in a single serialization pass.
   /// All entries are replaced simultaneously — no chained re-parses needed.
   /// 
-  /// [replacements] maps each SoundRecord to its new raw audio bytes.
   /// [newSampleRates] optionally overrides the playback frequency for specific entries.
+  /// [overridePlatform] allows writing the output file using a different platform's 
+  /// alignment/metadata rules (e.g. converting a PS2-built .str to PSP).
   Uint8List replaceAudioBatch(Map<SoundRecord, Uint8List> replacements,
-          {Map<SoundRecord, int>? newSampleRates}) =>
-      SoundReplacer.replaceMany(_bytes, _root, _banks, replacements, platform,
+          {Map<SoundRecord, int>? newSampleRates, String? overridePlatform}) =>
+      SoundReplacer.replaceMany(
+          _bytes, _root, _banks, replacements, overridePlatform ?? platform,
           newSampleRates: newSampleRates);
 
   /// Replace the audio for [record] with a standard WAV file.

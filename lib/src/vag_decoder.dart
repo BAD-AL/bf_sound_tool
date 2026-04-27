@@ -57,6 +57,12 @@ class VagDecoder {
   // Output is interleaved stereo PCM16: [L0 R0 L1 R1 ...].
 
   static Uint8List _decodeStereo(Uint8List data, int interleaveBytes) {
+    if (interleaveBytes <= 0) {
+      // Fallback: if interleave is invalid, treat as mono or return empty.
+      // For robustness, we'll return an empty list or decode as mono.
+      // Given this is a safety check, mono fallback is least likely to crash.
+      return _decodeMono(data);
+    }
     final totalBlocks = data.length ~/ blockSize;
     final maxSamplesPerChannel = totalBlocks * samplesPerBlock;
 
